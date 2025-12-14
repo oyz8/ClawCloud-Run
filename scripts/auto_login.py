@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 ClawCloud 自动登录脚本
-- 等待设备验证批准（30秒）
+- 等待设备验证（30秒）
 - 每次登录后自动更新 Cookie
-- Telegram 通知
+- 截图只通过 Telegram 发送，不保存到 Artifacts
 """
 
 import os
@@ -11,6 +11,7 @@ import sys
 import time
 import base64
 import requests
+from io import BytesIO
 from playwright.sync_api import sync_playwright
 
 # ==================== 配置 ====================
@@ -39,17 +40,17 @@ class Telegram:
         except:
             pass
     
-    def photo(self, path, caption=""):
-        if not self.ok or not os.path.exists(path):
+    def send_photo_bytes(self, photo_bytes, caption=""):
+        """发送截图（字节流，不保存文件）"""
+        if not self.ok or not photo_bytes:
             return
         try:
-            with open(path, 'rb') as f:
-                requests.post(
-                    f"https://api.telegram.org/bot{self.token}/sendPhoto",
-                    data={"chat_id": self.chat_id, "caption": caption[:1024]},
-                    files={"photo": f},
-                    timeout=60
-                )
+            requests.post(
+                f"https://api.telegram.org/bot{self.token}/sendPhoto",
+                data={"chat_id": self.chat_id, "caption": caption[:1024]},
+                files={"photo": ("screenshot.png", photo_bytes, "image/png")},
+                timeout=60
+            )
         except:
             pass
 
@@ -64,7 +65,7 @@ class SecretUpdater:
         if self.ok:
             print("✅ Secret 自动更新已启用")
         else:
-            print("⚠️ Secret 自动更新未启用（需要 REPO_TOKEN）")
+            print("⚠️ Secret 自动更新未启用")
     
     def update(self, name, value):
         if not self.ok:
@@ -77,7 +78,6 @@ class SecretUpdater:
                 "Accept": "application/vnd.github.v3+json"
             }
             
-            # 获取公钥
             r = requests.get(
                 f"https://api.github.com/repos/{self.repo}/actions/secrets/public-key",
                 headers=headers, timeout=30
@@ -89,7 +89,6 @@ class SecretUpdater:
             pk = public.PublicKey(key_data['key'].encode(), encoding.Base64Encoder())
             encrypted = public.SealedBox(pk).encrypt(value.encode())
             
-            # 更新 Secret
             r = requests.put(
                 f"https://api.github.com/repos/{self.repo}/actions/secrets/{name}",
                 headers=headers,
@@ -111,9 +110,8 @@ class AutoLogin:
         self.gh_session = os.environ.get('GH_SESSION', '').strip()
         self.tg = Telegram()
         self.secret = SecretUpdater()
-        self.shots = []
         self.logs = []
-        self.n = 0
+        self.last_screenshot = None  # 保存最后一张截图的字节
         
     def log(self, msg, level="INFO"):
         icons = {"INFO": "ℹ️", "SUCCESS": "✅", "ERROR": "❌", "WARN": "⚠️", "STEP": "🔹"}
@@ -122,14 +120,17 @@ class AutoLogin:
         self.logs.append(line)
     
     def shot(self, page, name):
-        self.n += 1
-        f = f"{self.n:02d}_{name}.png"
+        """截图并保存到内存（不保存文件）"""
         try:
-            page.screenshot(path=f)
-            self.shots.append(f)
+            self.last_screenshot = page.screenshot()
+            self.log(f"截图: {name}")
         except:
             pass
-        return f
+    
+    def send_screenshot(self, caption=""):
+        """发送最后一张截图到 Telegram"""
+        if self.last_screenshot:
+            self.tg.send_photo_bytes(self.last_screenshot, caption)
     
     def click(self, page, sels, desc=""):
         for s in sels:
@@ -160,15 +161,13 @@ class AutoLogin:
         
         self.log(f"新 Cookie: {value[:15]}...{value[-8:]}", "SUCCESS")
         
-        # 自动更新 Secret
         if self.secret.update('GH_SESSION', value):
             self.log("已自动更新 GH_SESSION", "SUCCESS")
-            self.tg.send("🔑 <b>Cookie 已自动更新</b>\n\nGH_SESSION 已保存")
+            self.tg.send("🔑 <b>Cookie 已自动更新</b>\n\nGH_SESSION 已保存到 Secrets")
         else:
-            # 通过 Telegram 发送
             self.tg.send(f"""🔑 <b>新 Cookie</b>
 
-请更新 Secret <b>GH_SESSION</b>:
+请手动更新 Secret <b>GH_SESSION</b>:
 <code>{value}</code>""")
             self.log("已通过 Telegram 发送 Cookie", "SUCCESS")
     
@@ -183,8 +182,7 @@ class AutoLogin:
 1️⃣ 检查邮箱点击链接
 2️⃣ 或在 GitHub App 批准""")
         
-        if self.shots:
-            self.tg.photo(self.shots[-1], "设备验证页面")
+        self.send_screenshot("设备验证页面")
         
         for i in range(DEVICE_VERIFY_WAIT):
             time.sleep(1)
@@ -247,6 +245,7 @@ class AutoLogin:
         if 'two-factor' in page.url:
             self.log("需要两步验证！", "ERROR")
             self.tg.send("❌ <b>需要两步验证</b>")
+            self.send_screenshot("需要两步验证")
             return False
         
         # 错误
@@ -314,13 +313,7 @@ class AutoLogin:
         msg += "\n\n<b>日志:</b>\n" + "\n".join(self.logs[-6:])
         
         self.tg.send(msg)
-        
-        if self.shots:
-            if not ok:
-                for s in self.shots[-3:]:
-                    self.tg.photo(s, s)
-            else:
-                self.tg.photo(self.shots[-1], "完成")
+        self.send_screenshot("最终截图" if ok else "错误截图")
     
     def run(self):
         print("\n" + "="*50)
@@ -366,7 +359,6 @@ class AutoLogin:
                 if 'signin' not in page.url.lower():
                     self.log("已登录！", "SUCCESS")
                     self.keepalive(page)
-                    # 提取并保存新 Cookie
                     new = self.get_session(context)
                     if new:
                         self.save_cookie(new)
@@ -382,6 +374,7 @@ class AutoLogin:
                     '[data-provider="github"]'
                 ], "GitHub"):
                     self.log("找不到按钮", "ERROR")
+                    self.shot(page, "找不到按钮")
                     self.notify(False, "找不到 GitHub 按钮")
                     sys.exit(1)
                 
@@ -422,7 +415,7 @@ class AutoLogin:
                 # 6. 保活
                 self.keepalive(page)
                 
-                # 7. 提取并保存新 Cookie
+                # 7. 更新 Cookie
                 self.log("步骤6: 更新 Cookie", "STEP")
                 new = self.get_session(context)
                 if new:
