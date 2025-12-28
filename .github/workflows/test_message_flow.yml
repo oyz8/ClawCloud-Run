@@ -1,0 +1,55 @@
+name: Test Telegram Message Flow
+on: workflow_dispatch
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test if Bot can receive /code
+        env:
+          BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: |
+          set -e
+          echo "=== 测试开始 ==="
+          echo "请立刻向Bot私聊发送：/code 987654"
+          
+          # 1. 获取当前最新的update_id作为起始点，避免读取旧消息
+          echo "获取初始offset..."
+          INIT_RESP=$(curl -s "https://api.telegram.org/bot${BOT_TOKEN}/getUpdates")
+          OFFSET=$(echo "$INIT_RESP" | jq '.result[-1].update_id // 0')
+          if [ "$OFFSET" -ne 0 ]; then
+            OFFSET=$((OFFSET + 1))
+            echo "将忽略此ID之前的消息，新offset: $OFFSET"
+          fi
+          
+          # 2. 轮询30秒，等待特定的 /code 消息
+          echo "开始轮询，等待30秒..."
+          for i in $(seq 1 30); do
+            # 调用getUpdates，传入offset，只获取新消息
+            RESP=$(curl -s "https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?offset=${OFFSET}")
+            
+            # 使用jq解析：找出最新消息，检查文本是否匹配 /code 模式
+            RECEIVED_TEXT=$(echo "$RESP" | jq -r '.result[-1].message.text // ""')
+            echo "[$i秒] 收到原始文本: '$RECEIVED_TEXT'"
+            
+            if echo "$RECEIVED_TEXT" | grep -qE '^/code[[:space:]]+[0-9]{6}$'; then
+              RECEIVED_CODE=$(echo "$RECEIVED_TEXT" | grep -oE '[0-9]{6}$')
+              RECEIVED_CHAT_ID=$(echo "$RESP" | jq '.result[-1].message.chat.id')
+              echo "✅ 成功！收到验证码: $RECEIVED_CODE"
+              echo "✅ 来自Chat ID: $RECEIVED_CHAT_ID"
+              echo "✅ 预期Chat ID: $CHAT_ID"
+              
+              # 简单回复确认（可选）
+              curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+                -d "chat_id=${CHAT_ID}" \
+                -d "text=✅ 测试成功！脚本能收到你的指令。" \
+                -d "disable_notification=true" > /dev/null
+              exit 0
+            fi
+            
+            sleep 1
+          done
+          
+          echo "❌ 测试失败：30秒内未收到格式正确的 /code 消息。"
+          echo "请检查：1. 是否发给了正确的Bot；2. 消息格式是否为 '/code 六位数字'；3. Bot隐私模式是否已关闭。"
+          exit 1
