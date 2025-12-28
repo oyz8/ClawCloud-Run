@@ -28,6 +28,8 @@ class Telegram:
         self.token = os.environ.get('TG_BOT_TOKEN')
         self.chat_id = os.environ.get('TG_CHAT_ID')
         self.ok = bool(self.token and self.chat_id)
+        # 调试：初始化时打印状态
+        print(f"DEBUG_INIT: Telegram 初始化 - Token存在: {bool(self.token)}, Chat ID存在: {bool(self.chat_id)}, Chat ID值: {self.chat_id}")
     
     def send(self, msg):
         if not self.ok:
@@ -67,8 +69,11 @@ class Telegram:
             )
             data = r.json()
             if data.get("ok") and data.get("result"):
-                return data["result"][-1]["update_id"] + 1
-        except:
+                last_update_id = data["result"][-1]["update_id"] + 1
+                print(f"DEBUG_FLUSH: 获取到最新update_id，刷新后offset为: {last_update_id}")
+                return last_update_id
+        except Exception as e:
+            print(f"DEBUG_FLUSH_ERROR: 刷新offset异常: {e}")
             pass
         return 0
     
@@ -78,6 +83,7 @@ class Telegram:
         只接受来自 TG_CHAT_ID 的消息
         """
         if not self.ok:
+            print("DEBUG_WAIT: Telegram未就绪 (ok=False)")
             return None
         
         # 先刷新 offset，避免读到旧的 /code
@@ -85,35 +91,66 @@ class Telegram:
         deadline = time.time() + timeout
         pattern = re.compile(r"^/code\s+(\d{6,8})$")  # 6位TOTP 或 8位恢复码也行
         
+        print(f"DEBUG_WAIT: 开始等待验证码，超时时间: {timeout}秒, 初始offset: {offset}")
+        
         while time.time() < deadline:
             try:
+                print(f"DEBUG_WAIT_LOOP: 发送getUpdates请求，offset={offset}")
                 r = requests.get(
                     f"https://api.telegram.org/bot{self.token}/getUpdates",
                     params={"timeout": 20, "offset": offset},
                     timeout=30
                 )
+                print(f"DEBUG_WAIT_LOOP: 请求状态码: {r.status_code}")
+                
                 data = r.json()
+                print(f"DEBUG_WAIT_LOOP: 响应ok字段: {data.get('ok')}")
+                print(f"DEBUG_WAIT_LOOP: 消息数量: {len(data.get('result', []))}")
+                
                 if not data.get("ok"):
+                    print(f"DEBUG_WAIT_LOOP: API返回ok=false，等待2秒后继续")
                     time.sleep(2)
                     continue
                 
                 for upd in data.get("result", []):
                     offset = upd["update_id"] + 1
+                    print(f"DEBUG_WAIT_LOOP: 处理update_id: {upd['update_id']}, 新offset: {offset}")
+                    
                     msg = upd.get("message") or {}
                     chat = msg.get("chat") or {}
-                    if str(chat.get("id")) != str(self.chat_id):
-                        continue
-                    
+                    received_chat_id = chat.get("id")
                     text = (msg.get("text") or "").strip()
+                    
+                    print(f"DEBUG_WAIT_LOOP: 收到消息 - Chat ID: {received_chat_id}, 文本: '{text}'")
+                    print(f"DEBUG_WAIT_LOOP: 预期Chat ID: {self.chat_id} (类型: {type(self.chat_id)})")
+                    
+                    # 调试：检查Chat ID匹配逻辑
+                    if str(received_chat_id) != str(self.chat_id):
+                        print(f"DEBUG_WAIT_LOOP: Chat ID不匹配！收到: {received_chat_id} (类型: {type(received_chat_id)}), 预期: {self.chat_id} (类型: {type(self.chat_id)})")
+                        continue
+                    else:
+                        print(f"DEBUG_WAIT_LOOP: Chat ID匹配成功！")
+                    
                     m = pattern.match(text)
                     if m:
-                        return m.group(1)
+                        code = m.group(1)
+                        print(f"DEBUG_WAIT_LOOP: ✅ 成功匹配到验证码: {code}")
+                        return code
+                    else:
+                        print(f"DEBUG_WAIT_LOOP: 文本格式不匹配 /code 模式")
             
-            except Exception:
+            except Exception as e:
+                print(f"DEBUG_WAIT_LOOP_ERROR: 异常: {e}")
+                import traceback
+                traceback.print_exc()
                 pass
             
+            # 调试：显示剩余等待时间
+            remaining = deadline - time.time()
+            print(f"DEBUG_WAIT_LOOP: 本轮结束，剩余等待时间: {remaining:.1f}秒，睡眠2秒")
             time.sleep(2)
         
+        print(f"DEBUG_WAIT: ❌ 等待验证码超时")
         return None
 
 
@@ -471,7 +508,7 @@ class AutoLogin:
             self.shot(page, "两步验证")
             
             # GitHub Mobile：等待你在手机上批准
-            if 'two-factor/mobile' in page.url:
+            if 'two-factor/mobile' in url:
                 if not self.wait_two_factor_mobile(page):
                     return False
                 # 通过后等页面稳定
