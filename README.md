@@ -1,4 +1,4 @@
-# [⭐最近申请公益领域需要100星，帮我另一个项目点一Star ⭐ ](https://github.com/oyz8/random-pic-api) ###  Star 星星走起 动动发财手点点
+# [⭐最近申请公益领域需要100星，帮我另一个项目点一Star ⭐ ](https://github.com/oyz8/random-pic-api) Star 星星走起 动动发财手点点
 
 > 🚀 基于 Selenium 的 ClawCloud 自动登录保活脚本，专为青龙面板设计，支持 GitHub OAuth 登录、两步验证、Cookie 自动更新。
 
@@ -293,4 +293,5 @@ chromedriver --version
 **如果这个项目对你有帮助，请给个 ⭐ Star 支持一下！**
 
 ---
+
 
