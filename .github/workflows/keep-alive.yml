@@ -3,7 +3,7 @@ name: ClawCloud-Run
 on:
   schedule:
     - cron: '30 0 * * *'
-  workflow_dispatch: # 必须有这一行，手动按钮才会出现
+  workflow_dispatch: 
 
 jobs:
   run-it:
@@ -28,6 +28,4 @@ jobs:
           GH_USERNAME: ${{ secrets.GH_USERNAME }}
           GH_PASSWORD: ${{ secrets.GH_PASSWORD }}
           GH_2FA_SECRET: ${{ secrets.GH_2FA_SECRET }}
-          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: python scripts/auto_login.py
