@@ -1,1 +1,33 @@
+name: ClawCloud-Run
 
+on:
+  schedule:
+    - cron: '30 0 * * *'
+  workflow_dispatch: # 必须有这一行，手动按钮才会出现
+
+jobs:
+  run-it:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install playwright requests pyotp
+          playwright install chromium
+          playwright install-deps
+
+      - name: Run script
+        env:
+          GH_USERNAME: ${{ secrets.GH_USERNAME }}
+          GH_PASSWORD: ${{ secrets.GH_PASSWORD }}
+          GH_2FA_SECRET: ${{ secrets.GH_2FA_SECRET }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: python scripts/auto_login.py
