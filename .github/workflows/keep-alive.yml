@@ -11,65 +11,62 @@
           def run():
               with sync_playwright() as p:
                   browser = p.chromium.launch(headless=True)
-                  context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                  context = browser.new_context(viewport={'width': 1280, 'height': 800})
                   page = context.new_page()
                   
                   try:
-                      print("1. 访问登录页...")
+                      print("1. 正在登录 GitHub...")
                       page.goto("https://github.com/login")
-                      page.get_by_label("Username or email address").fill(os.environ['GH_USERNAME'])
-                      page.get_by_label("Password").fill(os.environ['GH_PASSWORD'])
+                      page.fill('input[name="login"]', os.environ['GH_USERNAME'])
+                      page.fill('input[name="password"]', os.environ['GH_PASSWORD'])
                       
-                      # 【精准修复】：只点击类型为 submit 的 Sign in 按钮，避开 Passkey 按钮
+                      # 针对报错的精准修复：使用唯一属性定位登录按钮
                       page.locator('input[type="submit"][name="commit"]').click()
-                      
-                      # 2. 处理 2FA 逻辑
                       time.sleep(5)
-                      if "two-factor" in page.url:
-                          print("⚠️ 检测到 2FA，尝试切换模式...")
-                          
-                          # 寻找并点击“More options”
-                          try:
-                              # 增加多种定位方式，确保能点开菜单
-                              more_opt = page.get_by_role("button", name="More options").first
-                              if more_opt.is_visible(timeout=5000):
-                                  more_opt.click()
-                                  time.sleep(2)
-                                  page.get_by_role("button", name="Use your authentication app").click()
-                                  print("✅ 已切换到验证码模式")
-                                  time.sleep(2)
-                          except:
-                              print("💡 切换按钮未找到，可能已在填码页")
 
-                          # 生成并填写验证码
+                      # 2. 处理 2FA 验证
+                      if "two-factor" in page.url:
+                          print("⚠️ 进入 2FA 流程，尝试切换模式...")
+                          # 保存一张 2FA 初始状态图
+                          page.screenshot(path="debug.png") 
+                          
+                          try:
+                              # 暴力点击所有可能的切换按钮
+                              page.locator('button:has-text("More options"), .Button-label:has-text("More options")').first.click(timeout=5000)
+                              time.sleep(2)
+                              page.locator('button:has-text("Use your authentication app")').first.click()
+                              print("✅ 切换成功")
+                          except:
+                              print("💡 未发现切换按钮，尝试直接填码")
+
                           secret = os.environ['GH_2FA_SECRET'].replace(' ', '')
                           code = pyotp.TOTP(secret).now()
-                          print(f"🔢 自动填入验证码: {code}")
-
-                          # 填码
+                          
+                          # 等待输入框出现
                           otp_input = page.locator('input[autocomplete="one-time-code"], input[name="app_otp"]').first
                           otp_input.wait_for(state="visible", timeout=10000)
                           otp_input.fill(code)
                           page.keyboard.press("Enter")
-                          time.sleep(10)
+                          time.sleep(8)
 
-                      # 3. 访问 ClawCloud
-                      print("🌐 访问 ClawCloud 控制台...")
-                      page.goto("https://console.run.claw.cloud", wait_until="networkidle")
-                      
+                      # 3. 跳转 ClawCloud
+                      print("🌐 访问 ClawCloud...")
+                      page.goto("https://console.run.claw.cloud")
+                      time.sleep(5)
+
                       if "authorize" in page.url:
-                          print("🔘 点击授权...")
                           page.get_by_role("button", name="Authorize").click()
-                          time.sleep(10)
+                          time.sleep(8)
 
                       if "claw.cloud" in page.url and "signin" not in page.url:
-                          print("🎉 这一次真的成功了！")
+                          print("🎉 恭喜！全自动登录保活成功！")
                       else:
-                          raise Exception("最终页面跳转失败")
-                  
+                          raise Exception("最终验证未通过")
+
                   except Exception as e:
-                      print(f"❌ 运行异常: {e}")
-                      page.screenshot(path="fail.png")
+                      print(f"❌ 运行报错: {e}")
+                      # 只要报错，立即截图
+                      page.screenshot(path="debug.png")
                       raise e
                   finally:
                       browser.close()
@@ -78,3 +75,10 @@
               run()
           EOF
           python run.py
+
+      - name: 存档调试截图
+        if: always() # 无论成功失败都尝试上传，方便你看到画面
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screen
+          path: debug.png
