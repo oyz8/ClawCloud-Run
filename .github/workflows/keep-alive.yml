@@ -1,4 +1,4 @@
-name: ClawCloud 自动登录保活
+name: ClawCloud 全自动登录保活
 
 on:
   schedule:
@@ -21,25 +21,101 @@ jobs:
 
       - name: 安装依赖
         run: |
-          pip install playwright requests pynacl pysocks
+          pip install playwright requests pynacl pysocks pyotp pyyaml
           playwright install chromium
           playwright install-deps
 
-      - name: 下载 Hysteria2
+      - name: 写入自动化脚本
         run: |
-          curl -Lo hysteria https://download.hysteria.network/app/latest/hysteria-linux-amd64
-          chmod +x hysteria
-          sudo mv hysteria /usr/local/bin/
-          hysteria version
+          mkdir -p scripts
+          cat << 'EOF' > scripts/auto_login.py
+          import os
+          import time
+          import pyotp
+          import requests
+          from playwright.sync_api import sync_playwright
+
+          def run_login():
+              # 从 GitHub Secrets 获取配置
+              username = os.environ.get('GH_USERNAME')
+              password = os.environ.get('GH_PASSWORD')
+              otp_secret = os.environ.get('GH_2FA_SECRET', '').replace(' ', '')
+              tg_token = os.environ.get('TG_BOT_TOKEN')
+              tg_id = os.environ.get('TG_CHAT_ID')
+
+              print(f"🚀 开始为用户 {username} 执行自动登录...")
+
+              with sync_playwright() as p:
+                  browser = p.chromium.launch(headless=True)
+                  context = browser.new_context(viewport={'width': 1920, 'height': 1080})
+                  page = context.new_page()
+
+                  # 1. 登录 GitHub
+                  page.goto("https://github.com/login")
+                  page.fill('input[name="login"]', username)
+                  page.fill('input[name="password"]', password)
+                  page.click('input[type="submit"]')
+                  time.sleep(5)
+
+                  # 2. 处理 2FA 验证码
+                  if "two-factor" in page.url:
+                      print("🔐 检测到需要两步验证，正在生成验证码...")
+                      if not otp_secret:
+                          print("❌ 错误：未在 Secrets 中配置 GH_2FA_SECRET")
+                          return
+                      
+                      # 切换到 TOTP 输入模式
+                      try:
+                          if page.locator('a:has-text("Use an authentication app")').is_visible():
+                              page.click('a:has-text("Use an authentication app")')
+                              time.sleep(2)
+                      except: pass
+
+                      totp = pyotp.TOTP(otp_secret)
+                      code = totp.now()
+                      page.fill('input[autocomplete="one-time-code"]', code)
+                      page.keyboard.press("Enter")
+                      print("✅ 验证码已提交")
+                      time.sleep(5)
+
+                  # 3. 访问 ClawCloud 并授权
+                  print("🌐 正在跳转至 ClawCloud...")
+                  page.goto("https://console.run.claw.cloud")
+                  time.sleep(5)
+
+                  if "github.com/login/oauth/authorize" in page.url:
+                      print("🔘 正在进行 OAuth 授权...")
+                      page.click('button[name="authorize"]')
+                      time.sleep(5)
+
+                  # 4. 检查是否登录成功
+                  if "claw.cloud" in page.url:
+                      print("🎉 登录保活成功！")
+                      if tg_token and tg_id:
+                          requests.post(f"https://api.telegram.org/bot{tg_token}/sendMessage", 
+                                       data={"chat_id": tg_id, "text": "✅ ClawCloud 自动保活登录成功！"})
+                  else:
+                      print("❌ 登录可能失败，请检查截图")
+                      page.screenshot(path="fail.png")
+                  
+                  browser.close()
+
+          if __name__ == "__main__":
+              run_login()
+          EOF
 
       - name: 运行自动登录
         env:
           GH_USERNAME: ${{ secrets.GH_USERNAME }}
           GH_PASSWORD: ${{ secrets.GH_PASSWORD }}
-          GH_SESSION: ${{ secrets.GH_SESSION }}
+          GH_2FA_SECRET: ${{ secrets.GH_2FA_SECRET }}
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-          REPO_TOKEN: ${{ secrets.REPO_TOKEN }}
-          PROXY_HY2: ${{ secrets.PROXY_HY2 }}
-          
         run: python scripts/auto_login.py
+
+      - name: 上传失败截图
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-screenshot
+          path: fail.png
