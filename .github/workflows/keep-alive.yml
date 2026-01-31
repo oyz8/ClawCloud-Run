@@ -15,76 +15,63 @@
               tg_token = os.environ.get('TG_BOT_TOKEN')
               tg_id = os.environ.get('TG_CHAT_ID')
 
-              print(f"🚀 开始为用户 {username} 执行自动登录...")
-
               with sync_playwright() as p:
                   browser = p.chromium.launch(headless=True)
-                  context = browser.new_context(viewport={'width': 1920, 'height': 1080})
+                  context = browser.new_context()
                   page = context.new_page()
 
                   try:
-                      # 1. 登录 GitHub
-                      page.goto("https://github.com/login", timeout=60000)
+                      print("🌐 正在登录 GitHub...")
+                      page.goto("https://github.com/login")
                       page.fill('input[name="login"]', username)
                       page.fill('input[name="password"]', password)
                       page.click('input[type="submit"]')
                       time.sleep(5)
 
-                      # 2. 处理 2FA
                       if "two-factor" in page.url:
-                          print("🔐 检测到需要两步验证...")
+                          print("⚠️ 检测到手机推送模式，正在尝试切换到验证码模式...")
                           
-                          # 核心改进：强制寻找“使用验证码”的按钮并点击
-                          otp_link = page.locator('button:has-text("use your authentication app"), a:has-text("Use an authentication app"), button:has-text("Enter a two-factor code")').first
-                          if otp_link.is_visible():
-                              print("🖱️ 正在切换到验证码输入模式...")
-                              otp_link.click()
+                          # 核心逻辑：点击 'More options' -> 点击 'Use an authentication app'
+                          try:
+                              page.click('button:has-text("More options"), .Button-label:has-text("More options")', timeout=5000)
+                              time.sleep(2)
+                              page.click('button:has-text("Use an authentication app"), .ActionList-item-label:has-text("Use an authentication app")')
+                              print("✅ 已成功切换到验证码输入框")
                               time.sleep(3)
+                          except Exception as e:
+                              print(f"💡 尝试切换模式时遇到微调 (可能已经是验证码模式): {e}")
 
-                          if not otp_secret:
-                              print("❌ 错误：未配置 GH_2FA_SECRET")
-                              return
-                          
+                          # 生成并填写验证码
                           totp = pyotp.TOTP(otp_secret)
                           code = totp.now()
-                          print(f"✅ 已生成 TOTP 验证码")
-
-                          # 尝试多种可能的输入框选择器
-                          otp_input = page.locator('input[autocomplete="one-time-code"], input[name="app_otp"], #app_totp, #otp').first
-                          otp_input.wait_for(state="visible", timeout=10000)
+                          print(f"🔢 生成验证码: {code}")
+                          
+                          otp_input = page.locator('input[autocomplete="one-time-code"], input[name="app_otp"]').first
                           otp_input.fill(code)
                           page.keyboard.press("Enter")
-                          print("📤 验证码已提交，等待页面跳转...")
                           time.sleep(8)
 
-                      # 3. 访问 ClawCloud
-                      print("🌐 访问 ClawCloud 控制台...")
-                      page.goto("https://console.run.claw.cloud", timeout=60000)
+                      # 访问 ClawCloud
+                      print("🚀 访问 ClawCloud 控制台...")
+                      page.goto("https://console.run.claw.cloud")
                       time.sleep(5)
 
-                      # 检查是否需要 OAuth 授权
                       if "github.com/login/oauth/authorize" in page.url:
-                          print("🔘 正在进行 OAuth 授权...")
                           page.click('button[name="authorize"]')
                           time.sleep(8)
 
-                      # 4. 结果判定
                       if "claw.cloud" in page.url and "signin" not in page.url:
-                          print("🎉 登录保活成功！")
+                          print("🎉 恭喜！全自动登录成功！")
                           if tg_token and tg_id:
                               requests.post(f"https://api.telegram.org/bot{tg_token}/sendMessage", 
                                            data={"chat_id": tg_id, "text": "✅ ClawCloud 自动保活登录成功！"})
                       else:
-                          raise Exception("未检测到登录成功的标志页面")
+                          raise Exception("登录跳转失败，可能卡在了某个页面")
 
                   except Exception as e:
-                      print(f"❌ 运行出错: {e}")
+                      print(f"❌ 运行失败: {e}")
                       page.screenshot(path="fail.png")
-                      if tg_token and tg_id:
-                          requests.post(f"https://api.telegram.org/bot{tg_token}/sendMessage", 
-                                       data={"chat_id": tg_id, "text": f"❌ ClawCloud 登录失败\n错误: {str(e)[:100]}"})
-                      raise e # 重新抛出异常让 Action 显示失败状态
-                  
+                      raise e
                   finally:
                       browser.close()
 
