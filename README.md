@@ -1,21 +1,8 @@
 # ⭐ Star 星星走起 动动发财手点点 ⭐
-# 失效了，爪云添加CF人机验证了
+
 ## ClawCloud 官网(GitHub注册送5美元地址)：[run.claw.cloud](https://console.run.claw.cloud/signin?link=M9P7GXP3M3W5)
 
 ---
-
-## 更新 Hysteria2 代理（用于通过人机验证）
-变量：`PROXY_HY2`
-代理 URL 格式：`hysteria2://password@host:port?sni=xxx&alpn=xxx&insecure=1#name`
-
-参数 | 说明
--- | --
-password | 认证密码
-host:port | 服务器地址和端口
-sni | TLS SNI 伪装域名
-alpn | ALPN 协议（如 h3）
-insecure | 是否跳过证书验证（1=是）
-#name | 节点名称（可选，不影响功能）
 
 > 自动登录 ClawCloud，保持账户活跃，支持设备验证 + 两步验证
 
@@ -41,7 +28,6 @@ insecure | 是否跳过证书验证（1=是）
 | `REPO_TOKEN` | ✅ | GitHub PAT（用于自动更新 Cookie） |
 | `TG_BOT_TOKEN` | ✅ | Telegram Bot Token |
 | `TG_CHAT_ID` | ✅ | Telegram Chat ID |
-| `PROXY_HY2` | ✅ | 用于通过人机验证 代理 URL 格式 `hysteria2://password@host:port?sni=xxx&alpn=xxx&insecure=1#name`  |
 | `GH_SESSION` | ❌ | 自动生成，无需手动添加 |
 
 ---
@@ -198,7 +184,6 @@ Authenticator app ✓
 | `TG_BOT_TOKEN` | 第二步的 Token: `6123456789:AAHxxxxx...` |
 | `TG_CHAT_ID` | 第二步的 Chat ID: `123456789` |
 | `REPO_TOKEN` | 第四步的4.2 GitHub PAT: `ghp_xxxxxxxxxxxx` |
-| `PROXY_HY2` | Hysteria2 代理 `hysteria2://password@host:port?sni=xxx&alpn=xxx&insecure=1#name` |
 
 ### 4.4 确认完成
 
