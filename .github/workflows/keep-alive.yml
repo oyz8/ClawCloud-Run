@@ -2,8 +2,11 @@ name: ClawCloud 自动登录保活
 
 on:
   schedule:
-    - cron: '11 15 */5 * *'  # UTC 7:00，每5天运行
+    - cron: '0 1 */5 * *'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   auto-login:
@@ -13,6 +16,8 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 设置 Python
         uses: actions/setup-python@v5
@@ -34,3 +39,11 @@ jobs:
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           REPO_TOKEN: ${{ secrets.REPO_TOKEN }}
         run: python scripts/auto_login.py
+        
+#      - name: 私有仓库 Actions 保活
+#        run: |
+#          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+#          git config --local user.name "github-actions[bot]"
+#          git pull --rebase || true
+#          git commit --allow-empty -m "Chore: 仓库 Actions 保活 [skip ci]"
+#          git push
