@@ -23,7 +23,7 @@ from playwright.sync_api import sync_playwright
 PROXY_DSN = os.environ.get("PROXY_DSN", "").strip()
 
 # 固定登录入口，OAuth后会自动跳转到实际区域
-LOGIN_ENTRY_URL = "https://console.run.claw.cloud/login"
+LOGIN_ENTRY_URL = "https://eu-central-1.run.claw.cloud/login"
 SIGNIN_URL = f"{LOGIN_ENTRY_URL}/signin"
 DEVICE_VERIFY_WAIT = 30  # Mobile验证 默认等 30 秒
 TWO_FACTOR_WAIT = int(os.environ.get("TWO_FACTOR_WAIT", "120"))  # 2FA验证 默认等 120 秒
